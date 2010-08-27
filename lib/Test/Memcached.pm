@@ -11,7 +11,7 @@ use Time::HiRes ();
 # process does not die when received SIGTERM, on win32.
 my $TERMSIG = $^O eq 'MSWin32' ? 'KILL' : 'TERM';
 
-our $VERSION = '0.00002';
+our $VERSION = '0.00003';
 our $errstr;
 our %OPTIONS_MAP = (
     # perl name               => [ $option_name, $boolean, $default ]
@@ -44,11 +44,15 @@ our %OPTIONS_MAP = (
 our @SEARCH_PATHS = qw(/usr/local /opt/local /usr);
 
 my %DEFAULTS = (
-    options    => {},
+    options    => undef,
     base_dir   => undef,
     memcached  => undef,
     pid        => undef,
     _owner_pid => undef,
+    memcached_version => undef,
+    memcached_major_version => undef,
+    memcached_minor_version => undef,
+    memcached_micro_version => undef,
 );
 
 Class::Accessor::Lite->mk_accessors(keys %DEFAULTS);
@@ -60,6 +64,8 @@ sub new {
         @_ == 1 ? %{ $_[0] } : @_,
         _owner_pid => $$,
     }, $class;
+
+    $self->{options} ||= {};
 
     if (defined $self->base_dir) {
         $self->base_dir(cwd . '/' . $self->base_dir)
@@ -77,12 +83,23 @@ sub new {
             or return;
         $self->memcached( $prog );
     }
+    # run memcached -h, and find out the version string
+    my $cmd = join(' ', $self->memcached, '-h');
+    my $output = qx/$cmd/;
+    if ($output =~ /^memcached\s+((\d+)\.(\d+)\.(\d+))/) {
+        $self->memcached_version($1);
+        $self->memcached_major_version($2);
+        $self->memcached_minor_version($3);
+        $self->memcached_micro_version($4);
+    } else {
+        warn "Could not parse memcached version";
+    }
 
     return $self;
 }
 
 sub start {
-    my $self = shift;
+    my ($self, %args) = @_;
 
     return if defined $self->pid;
 
@@ -90,11 +107,12 @@ sub start {
         ! $self->options->{udp_port} &&
         ! $self->options->{tcp_port}
     ) {
-        my $port = 10000;
+        my $port = $args{tcp_port} || 10000;
         $port = 19000 unless $port =~ /^[0-9]+$/ && $port < 19000;
 
+        my $sock;
         while ( $port++ < 20000 ) {
-            my $sock = IO::Socket::INET->new(
+            $sock = IO::Socket::INET->new(
                 Listen    => 5,
                 LocalAddr => '127.0.0.1',
                 LocalPort => $port,
@@ -103,7 +121,9 @@ sub start {
             );
             last if $sock;
         }
-        die "empty port not found" unless $port;
+        if (! $sock) {
+            die "empty port not found";
+        }
         
         $self->options->{tcp_port} = $port;
     }
@@ -247,7 +267,7 @@ Test::Memcached - Memcached Runner For Tests
 
     use Test::Memcached;
 
-    my $memd = Test::MEmcached->new(
+    my $memd = Test::Memcached->new(
         options => {
             user => 'memcached-user',
         }
@@ -268,6 +288,31 @@ Test::Memcached - Memcached Runner For Tests
 
 Test::Memcached automatically sets up a memcached instance, and destroys it
 when the perl script exists. 
+
+=head1 HACKING Makefile
+
+This is not for the faint of heart, but you can actually hack your CPAN style
+Makefile to start your memcached server once per "make test". Do something like this in your Makefile.PL:
+
+    # After you generated your Makefile (that's after your "WriteMakeffile()"
+    # or "WriteAll()" statements):
+
+    if (-f 'Makefile') {
+        open (my $fh, '<', 'Makefile') or die "Could not open Makefile: $!";
+        my $makefile = do { local $/; <$fh> };
+        close $fh or die $!;
+
+        $makefile =~ s/"-e" "(test_harness\(\$\(TEST_VERBOSE\), )/"-I\$(INST_LIB)" "-I\$(INST_ARCHLIB)" "-It\/lib" "-MTest::Memcached" "-e" "\\\$\$SIG{INT} = sub { CORE::exit }; my \\\$\$memd; if ( ! \\\$\$ENV{TEST_MEMCACHED_SERVERS}) { \\\$\$memd = Test::Memcached->new(); if (\\\$\$memd) { \\\$\$memd->start(); \\\$\$ENV{TEST_MEMCACHED_SERVERS} = '127.0.0.1:' . \\\$\$memd->option('tcp_port'); } } $1/;
+
+        open (my $fh, '>', 'Makefile') or die "Could not open Makefile: $!";
+        print $fh $makefile;
+        close $fh or die $!;
+    }
+
+Then you can just rely on TEST_MEMCACHED_SERVERS in your .t files. 
+When make test ends, then the memcached instance will automatically stop.
+
+It's ugly, but it works
 
 =head1 METHODS
 

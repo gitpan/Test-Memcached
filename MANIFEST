@@ -1,5 +1,6 @@
 Changes
 inc/Module/Install.pm
+inc/Module/Install/AuthorTests.pm
 inc/Module/Install/Base.pm
 inc/Module/Install/Can.pm
 inc/Module/Install/Fetch.pm
@@ -13,3 +14,4 @@ MANIFEST			This list of files
 META.yml
 t/001_compile.t
 t/002_basic.t
+xt/001_basic.t
