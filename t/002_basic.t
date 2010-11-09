@@ -3,7 +3,11 @@ use strict;
 use Test::Memcached;
 use Test::More;
 
-my $memd = Test::Memcached->new();
+my @args;
+if ( $> == 0 ) {
+    @args = ( options => { user => $ENV{TEST_MEMCACHED_USER} || 'nobody' } );
+}
+my $memd = Test::Memcached->new( @args );
 if (! $memd) {
     # This is not good, as we're not able to check if Test::Memcached
     # was returning because there was no memcached, or we have a bug in

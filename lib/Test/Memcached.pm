@@ -11,7 +11,7 @@ use Time::HiRes ();
 # process does not die when received SIGTERM, on win32.
 my $TERMSIG = $^O eq 'MSWin32' ? 'KILL' : 'TERM';
 
-our $VERSION = '0.00003';
+our $VERSION = '0.00004';
 our $errstr;
 our %OPTIONS_MAP = (
     # perl name               => [ $option_name, $boolean, $default ]
@@ -103,6 +103,11 @@ sub start {
 
     return if defined $self->pid;
 
+    if ($> == 0 && ! $self->options->{user}) {
+        # if you're root, then you need to do something about it
+        die "You may not run memcached as root: Please specify the user via `user` option";
+    }
+
     if (! $self->options->{unix_socket} && 
         ! $self->options->{udp_port} &&
         ! $self->options->{tcp_port}
@@ -124,6 +129,7 @@ sub start {
         if (! $sock) {
             die "empty port not found";
         }
+        $sock->close;
         
         $self->options->{tcp_port} = $port;
     }
@@ -144,7 +150,9 @@ sub start {
         open STDERR, '>&', $logfh
             or die "dup(2) failed:$!";
 
-        exec( $self->memcached, $self->_format_options() );
+        my @cmd = ($self->memcached, $self->_format_options());
+        print STDERR "Executing @cmd\n";
+        exec( @cmd );
         exit;
     }
 

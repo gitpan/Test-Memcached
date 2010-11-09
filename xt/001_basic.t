@@ -3,7 +3,11 @@ use strict;
 use Test::Memcached;
 use Test::More;
 
-my $memd = Test::Memcached->new();
+my @args;
+if ( $> == 0 ) {
+    @args = ( options => { user => $ENV{TEST_MEMCACHED_USER} || 'nobody' } );
+}
+my $memd = Test::Memcached->new(@args);
 if (ok($memd)) {
     diag("Detected memcached " . $memd->memcached_version);
     ok $memd->memcached_version;
